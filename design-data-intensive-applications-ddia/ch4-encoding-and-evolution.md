@@ -1,5 +1,7 @@
 # Encoding and Evolution
 
+![](./img/ch4.png)
+
 ## Introduction
 
 This chapter talks about dealing with changes in an application.
