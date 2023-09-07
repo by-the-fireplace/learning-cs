@@ -32,5 +32,49 @@ This mode is built-in in:
 - Netowrk filesystem and replicated block devices: DRBD
 
 ##### Synchronous v.s. Asynchronous Replication
+- The title means if replication happens synchronously or asynchronously
+- Senario: a user updates the profile photo
+    - Sync: 
+        - The update request sent to the leader 
+        - Leader processes request, and forwards the request to the follower
+        - Follower updates data and notifies leader that the changes are done
+        - Leader wait until it gets the status from its follower, then it sends success response to user
+    - Async:
+        - Similar to sync, but the leader won't wait till its follower finishes
+- Pros & Cons
+    - Sync:
+        - (Pro) Follower is guaranteed to have up-to-date data
+        - (Con) Leader needs to wait for follower's response, any outage of a node will cause delay
+    - Aync: 
+        - The other side of sync
+- In reality, synchronous mode means one of the node is synchronous, if that one fails, the next async follower becomes sync (semi-synchronous)
+- Usually leader-based replication is configured completely asynchronously. The risk is data loss (failed write) and the advantage is laeder can keep writing without delay due to sync (good performance and availability)
+- MS Azure Storage used a variant of sync called "*chain replication*".
 
+#### Setting up new followers
+- The problem of setting up new followers is how to guarantee the new follower copies complete data from the leader
+- Because write requests happen all the time, thus data is different at each different time point
+- We don't want to lock the database because we want to prioritize availability
+- To solve this issue, we can use snapshot and time sequence log:
+    - Take a snapshot of the data
+    - Copy the snapshot to the new node
+    - The new follower request all data changes after the snapshot, this will require the snapshot associated with an exact position in the leader's *replication log*
+    - The follower processes the log and makes changes. 
 
+#### Handling node outage
+- Each node could go down either due to fault or maintenaince. The goal is to ensure the availability even if some nods failed.
+
+**Follower failure: catch-up recovery**
+Followers keep a log of data changes from the leader, so if crashes happen, it can recover data from this data change log: it knows what it was doing before the crash, and get activities after that from the leader for recovery.
+
+**Leader failure: failover**
+Leader failure could be trickier because more things need to happen: assign a new leader, followers configured to follow the new leader, clients configured to send writes to the new leader
+- This could happen manually or automatically. An automatic failover usually contains the following steps:
+    - Identify leader failure
+    - Choose a new leader 
+    - Reconfigure the system to the new leader
+- Issues with this approach
+    - For async followers, new leader may not yet get all changes before the leader fails. Simple solution is discard untracked writes, but this could harm user experience
+    - If the system is connected with some other storage system. "The GitHub accident: primary keys got assigned to wrong rows, causing private data disclosed to wrong users"
+    - Two or more nodes think they are leaders
+    - What's the right timeout before the leader declares dead
