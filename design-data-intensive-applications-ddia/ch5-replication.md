@@ -78,3 +78,33 @@ Leader failure could be trickier because more things need to happen: assign a ne
     - If the system is connected with some other storage system. "The GitHub accident: primary keys got assigned to wrong rows, causing private data disclosed to wrong users"
     - Two or more nodes think they are leaders
     - What's the right timeout before the leader declares dead
+
+#### Implementation of replication logs
+**Statement-based**
+- Leader logs all write requests (statement). The log is sent to followers.
+- Issues:
+    - Timestamp or random numbers can cause inconsistency between leader and follower
+    - Autoincrementing statements require followers to execute statement in a certain order, which could limit concurrency
+    - Statements with side effects, such as triggers, stored procedures, udfs could cause inconsistency
+- Work-arounds are possible but requires to consider a lot of edge cases, so other replication approaches are preferred
+
+**Write-ahead log (WAL) shipping**
+- Instead of sending request statements, leaders send the log of all writing sequence to the disk. So that followers could use the log to replciate the exact same operations on disk as the leader (similar to the append-only database log)
+- This method is used in PostgreSQL and Oracle
+- Disadvantage is it requires certain disk format since it's a low level write description
+- If a replication protocol allows follower to use a newer version of software than leader, we can first upgrade followers then failover the leader and make a follower the new leader. This is zero downtime upgrade.
+- If a replication protocol does not allow this (WAL usually doesn't allow version mismatch), downtime is required.
+
+**Logical (row-based) log replication**
+- Use an alternative format for replication (logical log), which distinguishes from the storage engine's data representation
+- Logical log for relational database is usually at the granularity of a row writing:
+    - Insert row: log contains new values of all columns
+    - Delete row: log contains information to uniquely identify the row (primary key or all columns)
+    - Update row: log contains information to uniquely identify the row and new values of all columns
+- MySQL's binlog uses this approach
+- It's easier for external software to parse (*change data capture*)
+
+**Trigger-based replication**
+- Sometimes we want to move replication to the application layer which gives more flexibility of how we do replication
+- We can achieve this by using tools such as Oracle GoldenGate or some relational database features *triggers* and *stored procedures*
+    - Triggers: it lets you register application code which is automatically executed when data changes
